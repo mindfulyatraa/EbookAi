@@ -87,30 +87,98 @@ const triggerImageCircuitBreaker = () => {
   }
 };
 
+// --- CONTENT SANITIZER (Post-Processing) ---
+// Strips garbage characters, stray page numbers, broken symbols from AI output
+const sanitizeContent = (text: string): string => {
+  let cleaned = text;
+  
+  // Remove stray page number references like "Page 2", "Page 10", "page 3" etc.
+  cleaned = cleaned.replace(/\bPage\s*\d+\b/gi, '');
+  
+  // Remove isolated garbage character clusters (2+ non-word chars not part of markdown)
+  // This catches things like: ??  ##~~  **##  ~~** etc. that appear on their own lines
+  cleaned = cleaned.replace(/^[\s]*[?#~@$%^&*=+|<>{}\[\]]{2,}[\s]*$/gm, '');
+  
+  // Remove lone symbols that aren't valid markdown (stray ? # ~ at start/end of lines with no context)
+  cleaned = cleaned.replace(/^[\s]*[?~]{1,}[\s]*$/gm, '');
+  
+  // Remove "TT" artifacts that AI sometimes injects
+  cleaned = cleaned.replace(/\bTT\b/g, '');
+  
+  // Remove stray backtick artifacts
+  cleaned = cleaned.replace(/^[\s]*`{1,3}[\s]*$/gm, '');
+  
+  // Clean up excessive blank lines (more than 2 consecutive)
+  cleaned = cleaned.replace(/\n{4,}/g, '\n\n\n');
+  
+  // Remove zero-width characters and other invisible garbage
+  cleaned = cleaned.replace(/[\u200B-\u200D\uFEFF\u00AD]/g, '');
+  
+  // Remove stray isolated special chars that make no sense in prose
+  cleaned = cleaned.replace(/(?<=[\s\n])([?#~*]{1,2})(?=[\s\n])/g, '');
+  
+  return cleaned;
+};
+
 // --- SYSTEM INSTRUCTION ---
 const EBOOK_CREATOR_SYSTEM_INSTRUCTION = `
 You are a Professional Ebook Creator AI. You are writing and formatting a high-quality ebook based on the provided topic and target audience.
+You must strictly follow ALL rules below without exception.
 
-***STRICT WRITING & FORMATTING RULES***
+=== ABSOLUTE TEXT QUALITY RULES (HIGHEST PRIORITY) ===
 
-1. **Deep & High-Value Content**: Do not write surface-level or extremely short chapters. Expand on every concept with practical real-life examples, case studies, or actionable steps relevant to the book's specific topic.
-2. **Strict Formatting**: Do NOT include random characters, symbols, or page numbers (e.g., 'Page 2') in the generated text. Page numbers and footers are handled by the layout software.
-3. **CRITICAL RULE**: You are strictly forbidden from generating page numbers (e.g., 'Page 3', 'Page 4') anywhere in the output. Do not add any random characters or artifacts like 'TT'. Output ONLY the raw readable book content.
-4. **Clean Table of Contents**: Generate a perfectly formatted Table of Contents without any broken lines, weird spacing, or punctuation marks around the numbers. It must fit on ONE SINGLE PAGE.
-5. **Adaptive Tone**: Keep the tone perfectly aligned with the book's genre and target audience (e.g., highly empathetic and calm for mental health, authoritative for business, engaging for fiction).
-6. **Token Limit Handling**: Ensure the output is fully completed. Do not stop mid-sentence. If the content is too long for one response, complete the current section and explicitly write '[Type Continue for the rest]' at the end.
+1. **ZERO GARBAGE CHARACTERS**: You are STRICTLY FORBIDDEN from outputting any random, stray, or decorative symbols in the text. This includes but is not limited to: ??, ##, ~~, **, ##~~, TT, @@, $$, %%, ^^, or ANY combination of special characters that is not valid English/Hindi punctuation or standard markdown formatting. Every single character you output must serve a purpose in the readable text.
 
-***IMAGE GENERATION UNIVERSAL STRICT RULES***
+2. **NO PAGE NUMBERS**: Do NOT write "Page 1", "Page 2", "Page 3", etc. anywhere in the output. Page numbering is handled by the layout software. This is an absolute rule with zero exceptions.
 
-When generating image prompts for this ebook, you must adhere to the following constraints to ensure professional, 5-star quality:
+3. **CLEAN MARKDOWN ONLY**: The only markdown you may use is:
+   - **bold text** (double asterisks)
+   - Headings with # ## ###
+   - Lists with - or 1. 2. 3.
+   - [SECTION MARKERS] in square brackets
+   - <<IMAGE_PROMPT>> tags
+   Do NOT use any other special formatting, decorative separators, or symbol art.
 
-1. **ZERO TEXT OR NUMBERS**: Absolutely no letters, words, numbers, or symbols should be generated inside the images. All images must be 100% text-free.
-2. **Accurate Metaphors**: The visuals must exactly match the context of the chapter. Ensure the setting, objects, and mood make logical sense according to the text provided.
-3. **Appropriate Vibe**: Keep the visual tone perfectly aligned with the book's genre. Avoid overly dramatic, futuristic, or mismatched elements unless explicitly requested.
-4. **GENRE LOCK**: All visual descriptions or image prompts must be grounded in realism, minimal art, nature, or calming everyday settings. STRICTLY NO sci-fi, no cyberpunk, no futuristic technology, no glowing wires, and no dramatic action scenes.
-5. **Blank Templates for Diagrams**: For any roadmaps, timelines, or step-by-step guides, generate a blank illustration with empty visual steps/pathways. DO NOT attempt to number the steps or write explanatory text inside the image.
+4. **PROOFREAD BEFORE OUTPUT**: Before outputting any line, mentally verify it contains ZERO stray symbols. If a line would contain ?, #, ~, *, @, $ by themselves without being part of a word or valid formatting — DO NOT OUTPUT THAT LINE.
 
-***PAGING STRUCTURE***
+=== CONTENT QUALITY RULES ===
+
+5. **Deep & High-Value Content**: Do not write surface-level or extremely short chapters. Expand on every concept with practical real-life examples, case studies, or actionable steps relevant to the book's specific topic. Each chapter must be substantial (minimum 800-1000 words).
+
+6. **Clean Table of Contents**: Generate a perfectly formatted Table of Contents. Format MUST be:
+   - Introduction
+   - Chapter 1: [Clear Title]
+   - Chapter 2: [Clear Title]
+   - ...
+   - Conclusion
+   No broken lines, no weird spacing, no extra punctuation around numbers. Simple and clean.
+
+7. **Adaptive Tone**: Keep the tone perfectly aligned with the book's genre and target audience.
+
+8. **Token Limit Handling**: Do not stop mid-sentence. If the content is too long, complete the current section and write '[Type Continue for the rest]' at the end.
+
+=== IMAGE PROMPT RULES (CRITICAL) ===
+
+When you write <<IMAGE_PROMPT>> tags, you MUST follow these rules:
+
+9. **CHAPTER-SPECIFIC IMAGES**: Every image prompt MUST directly describe a visual scene that represents the SPECIFIC content of that chapter. The image must visually explain or illustrate the key concept of the chapter it belongs to.
+   - For a chapter about "Morning Meditation": describe a person sitting peacefully in morning light, eyes closed, in a calm room.
+   - For a chapter about "Financial Planning": describe a clean desk with organized papers, a plant, coffee cup, symbolizing organized planning.
+   - NEVER generate a generic or random image. The image MUST make sense if someone reads the chapter and then sees the image.
+
+10. **ZERO TEXT IN IMAGES**: Absolutely no letters, words, numbers, labels, or symbols should appear in the image. The image must be 100% text-free.
+
+11. **REALISTIC STYLE**: All images must be grounded in realism, minimal art, nature, or calming everyday settings. NO sci-fi, NO cyberpunk, NO futuristic technology, NO glowing wires, NO dramatic action scenes.
+
+12. **IMAGE PROMPT FORMAT**: Use this exact format:
+    <<IMAGE_PROMPT: TYPE: CHAPTER_CONTEXT: [chapter title or topic] | SCENE: [detailed visual description of a realistic scene that illustrates this specific chapter's content, including setting, objects, colors, mood, lighting]>>
+    
+    Types: COVER, AUTHOR, ILLUSTRATION
+    
+    Example for a chapter about stress relief:
+    <<IMAGE_PROMPT: ILLUSTRATION: CHAPTER_CONTEXT: Managing Daily Stress | SCENE: A serene living room bathed in warm golden sunset light, a comfortable armchair near a window with sheer curtains gently blowing, a cup of herbal tea on a side table, a small green plant, soft neutral color palette, peaceful and calming atmosphere, no people, photorealistic style>>
+
+=== PAGING STRUCTURE ===
 - [EBOOK TITLE] -> Cover Page.
 - [TABLE OF CONTENTS] -> Must be on its own page.
 - [AUTHOR PAGE] -> Must be on its own page.
@@ -118,12 +186,12 @@ When generating image prompts for this ebook, you must adhere to the following c
 - [CHAPTER X] -> Start every chapter on a NEW page.
 - [CONCLUSION] -> Must be on its own page.
 
-***EBOOK STRUCTURE TEMPLATE***
+=== EBOOK STRUCTURE TEMPLATE ===
 
 [EBOOK TITLE]
 Subtitle
 By [Author Name]
-<<IMAGE_PROMPT: COVER: [Detailed description following strict image rules]>>
+<<IMAGE_PROMPT: COVER: CHAPTER_CONTEXT: Book Cover | SCENE: [Premium 3D book mockup scene relevant to the book's topic, clean professional setting, studio lighting]>>
 
 [TABLE OF CONTENTS]
 - Introduction
@@ -134,21 +202,19 @@ By [Author Name]
 [AUTHOR PAGE]
 About the Author
 (Content...)
-<<IMAGE_PROMPT: AUTHOR: [Detailed description following strict image rules]>>
+<<IMAGE_PROMPT: AUTHOR: CHAPTER_CONTEXT: Author Portrait | SCENE: [Professional headshot description, soft studio lighting, neutral background]>>
 
 [INTRODUCTION]
 (Content...)
 
 CHAPTER 1 - Title
-<<IMAGE_PROMPT: ILLUSTRATION: [Detailed description following strict image rules]>>
+<<IMAGE_PROMPT: ILLUSTRATION: CHAPTER_CONTEXT: [Chapter 1 Title] | SCENE: [Detailed scene that visually explains this specific chapter's content]>>
 (Content...)
 
 ... (Continue for all chapters) ...
 
 [CONCLUSION]
 Final Summary
-
-✔ EBOOK COMPLETE.
 `;
 
 const generateEbookTool: FunctionDeclaration = {
@@ -221,10 +287,13 @@ export const streamEbookContent = async (
         Original Author: ${authorName}
         Language: ${language}
         
-        Requirements:
+        CRITICAL REMINDERS:
         1. Keep the same structure ([EBOOK TITLE], [TABLE OF CONTENTS], etc).
         2. Apply the user's change strictly.
         3. Output the WHOLE book again.
+        4. DO NOT output any garbage characters, stray symbols, or page numbers.
+        5. Every <<IMAGE_PROMPT>> must include CHAPTER_CONTEXT and SCENE tags.
+        6. Images must visually represent the specific chapter they belong to.
         `;
       } else {
         // CREATE MODE
@@ -237,13 +306,19 @@ export const streamEbookContent = async (
         Details: ${details}
         
         Structure Checklist (if generating whole book):
-        1. Cover Page (Title + Image)
-        2. Table of Contents (ONE PAGE ONLY)
+        1. Cover Page (Title + TOPIC-RELEVANT Cover Image)
+        2. Table of Contents (ONE PAGE ONLY, clean formatting, no extra symbols)
         3. Author Page (ONE PAGE ONLY)
         4. Introduction (ONE PAGE ONLY)
-        5. Minimum 5 Chapters (Detailed)
+        5. Minimum 5 Chapters (800-1000 words each, DETAILED with real examples)
         6. Conclusion
-        7. Visuals: High-quality illustrations for each chapter.
+        7. Visuals: Each chapter MUST have an <<IMAGE_PROMPT>> that SPECIFICALLY illustrates that chapter's content. The image must visually explain what the chapter is about.
+        
+        CRITICAL REMINDERS:
+        - DO NOT output garbage characters like ??, ##, ~~, **, TT, or any stray symbols.
+        - DO NOT write "Page 1", "Page 2", etc.
+        - Every image prompt MUST contain CHAPTER_CONTEXT and SCENE tags.
+        - Each image must be a realistic visual representation of that specific chapter's topic.
         
         If generating a specific section, follow the structure markers (e.g., [CHAPTER 1]) defined in your system instructions.
         `;
@@ -261,7 +336,11 @@ export const streamEbookContent = async (
 
       for await (const chunk of response) {
         if (chunk.text) {
-          onChunk(chunk.text);
+          // Sanitize each chunk to remove garbage characters in real-time
+          const cleanedText = sanitizeContent(chunk.text);
+          if (cleanedText.trim().length > 0 || chunk.text.includes('\n')) {
+            onChunk(cleanedText);
+          }
         }
       }
       return; // Success!
@@ -333,6 +412,48 @@ const imageQueue = new RequestQueue();
 const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 const getFallbackImage = (prompt: string) => `https://placehold.co/800x450/EEE/31343C?text=${encodeURIComponent(prompt.substring(0, 20))}`;
 
+// Extract CHAPTER_CONTEXT and SCENE from enhanced image prompts
+const parseImagePrompt = (rawPrompt: string): { type: string; chapterContext: string; scene: string; raw: string } => {
+  const typeMatch = rawPrompt.match(/^\s*(COVER|AUTHOR|ILLUSTRATION|DIAGRAM)\s*:/i);
+  const contextMatch = rawPrompt.match(/CHAPTER_CONTEXT:\s*([^|]+)/i);
+  const sceneMatch = rawPrompt.match(/SCENE:\s*(.+)/i);
+  
+  return {
+    type: typeMatch ? typeMatch[1].toUpperCase() : 'ILLUSTRATION',
+    chapterContext: contextMatch ? contextMatch[1].trim() : '',
+    scene: sceneMatch ? sceneMatch[1].trim() : rawPrompt.replace(/^\s*(COVER|AUTHOR|ILLUSTRATION|DIAGRAM)\s*:/i, '').trim(),
+    raw: rawPrompt
+  };
+};
+
+// Build a high-quality, chapter-aware image prompt
+const buildImagePrompt = (parsed: { type: string; chapterContext: string; scene: string; raw: string }): string => {
+  const { type, chapterContext, scene } = parsed;
+  
+  // Common quality suffix for all images
+  const qualitySuffix = 'absolutely no text, no letters, no words, no numbers, no labels, no symbols, no watermarks in the image';
+  
+  if (type === 'COVER') {
+    const contextPart = chapterContext ? `, theme related to ${chapterContext}` : '';
+    return `Professional 3D book cover mockup, standing upright on a clean surface, premium studio lighting, high detail, 8k resolution, photorealistic${contextPart}. ${scene}. ${qualitySuffix}`;
+  }
+  
+  if (type === 'AUTHOR') {
+    return `Professional headshot portrait, high-end studio photography, soft lighting, neutral background, sharp focus. ${scene}. ${qualitySuffix}`;
+  }
+  
+  if (type === 'DIAGRAM') {
+    return `Clean minimalist infographic illustration, professional flat design, white background, simple geometric shapes and pathways, blank template without any text or numbers. ${scene}. ${qualitySuffix}`;
+  }
+  
+  // ILLUSTRATION (default) — chapter-specific
+  const contextEnrichment = chapterContext 
+    ? `This illustration must visually represent the concept of "${chapterContext}". ` 
+    : '';
+  
+  return `Premium editorial illustration, ${contextEnrichment}realistic style, detailed composition, warm natural lighting, 4k resolution, professional quality. Scene: ${scene}. ${qualitySuffix}`;
+};
+
 export const generateEbookImage = async (prompt: string): Promise<string> => {
   // 1. Check Circuit Breaker
   try {
@@ -352,19 +473,12 @@ export const generateEbookImage = async (prompt: string): Promise<string> => {
       try {
         attempts++;
         
-        let finalPrompt = prompt;
-        const lowerPrompt = prompt.toLowerCase();
+        // Parse the structured image prompt and build a high-quality, context-aware prompt
+        const parsed = parseImagePrompt(prompt);
+        const finalPrompt = buildImagePrompt(parsed);
         
-        // REFINED STYLE CONTROL
-        if (lowerPrompt.includes('cover:')) {
-           finalPrompt = "Professional 3D Book Cover Mockup, standing upright on a clean surface, studio lighting, high detail, 8k resolution, " + prompt.replace('COVER:', '');
-        } else if (lowerPrompt.includes('diagram:') || lowerPrompt.includes('infographic') || lowerPrompt.includes('chart')) {
-           finalPrompt = "High-quality vector infographic, professional corporate style, clean layout, white background, data visualization, " + prompt.replace('DIAGRAM:', '').replace('CHART:', '');
-        } else if (lowerPrompt.includes('author:')) {
-           finalPrompt = "Professional headshot portrait, high-end studio photography, soft lighting, neutral background, " + prompt.replace('AUTHOR:', '');
-        } else {
-           finalPrompt = "Premium editorial illustration, digital art style, detailed composition, cinematic lighting, 4k resolution, masterpiece, " + prompt.replace('ILLUSTRATION:', '');
-        }
+        console.log(`🎨 Image Gen [${parsed.type}] Context: "${parsed.chapterContext || 'none'}"`);
+        console.log(`   Final prompt: ${finalPrompt.substring(0, 120)}...`);
 
         const ai = getAi();
         const response = await ai.models.generateContent({
